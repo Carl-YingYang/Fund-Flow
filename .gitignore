@@ -1,0 +1,26 @@
+# dependencies & build output
+node_modules/
+artifacts/
+cache/
+dist/
+coverage/
+typechain-types/
+
+# secrets (huwag na huwag i-push)
+.env
+.env.*
+!.env.example
+
+# generated ng app kapag nag-run ng demo
+frontend/fundflow-deployment.json
+frontend/fundflow-abi.json
+
+# local / editor / temp
+local-chain/
+initial_backup/
+.deps/
+.states/
+README-APPLY-UPDATE.md
+*.log
+.DS_Store
+Thumbs.db

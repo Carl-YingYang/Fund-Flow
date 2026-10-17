@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f0e6">
+  <meta name="description" content="Local-only dashboard for the FundFlow smart contract test environment">
+  <title>FundFlow — Local Test Lab</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="#dashboard" aria-label="FundFlow dashboard"><span class="brand-mark">FF</span><span class="brand-copy">FundFlow<small>FUNDS, MADE ACCOUNTABLE</small></span></a>
+    <div class="nav-label">WORKSPACE</div>
+    <nav class="nav" aria-label="Main navigation">
+      <button class="nav-btn active" data-page="dashboard"><span>▦</span> Dashboard</button>
+      <button class="nav-btn" data-page="requests"><span>⇄</span> Fund requests <span class="nav-count" id="pendingCount">0</span></button>
+      <button class="nav-btn" data-page="members"><span>♙</span> Members</button>
+      <button class="nav-btn" data-page="transactions"><span>↗</span> Transaction log</button>
+      <button class="nav-btn" data-page="setup"><span>⚙</span> Local setup</button>
+    </nav>
+    <div class="network-card">
+      <div class="network-label">LOCAL NETWORK <span class="dot" id="networkDot"></span></div>
+      <strong id="networkStatus">Checking node…</strong>
+      <p id="networkDetail">Expected: Hardhat · chain ID 31337</p>
+    </div>
+    <div class="sidebar-foot">NIEVA · NETWORK-BASED FUND TRANSFER SYSTEM<br><span>LOCAL DEVELOPMENT ONLY</span></div>
+  </aside>
+
+  <main class="main-content">
+    <header class="topbar">
+      <div><div class="eyebrow">NETWORK-BASED FUND TRANSFER SYSTEM</div><h1 id="pageTitle">Dashboard</h1><p id="pageSubtitle" class="subtitle">On-chain overview of your local FundFlow deployment.</p></div>
+      <div class="top-actions">
+        <label class="account-label" for="accountSelect">TEST ACCOUNT</label>
+        <select id="accountSelect" class="account-select" aria-label="Select local test account" disabled><option>Node not connected</option></select>
+        <div class="notification-shell">
+          <button class="notification-button" id="notificationButton" type="button" aria-label="Open notifications" aria-expanded="false" aria-controls="notificationPanel">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+            <span id="notificationBadge" class="notification-badge" hidden>0</span>
+          </button>
+          <section id="notificationPanel" class="notification-panel" hidden aria-label="Notifications">
+            <div class="notification-panel-head"><div><strong>Notifications</strong><small id="notificationSummary">Updates from this local session</small></div><button id="markNotificationsReadBtn" class="text-button" type="button">Mark all read</button></div>
+            <div id="notificationList" class="notification-list"><div class="notification-empty">No notifications yet.</div></div>
+          </section>
+        </div>
+        <button class="button secondary" id="connectBtn" type="button">Connect local node</button>
+        <button class="button primary" id="refreshBtn" type="button">↻ Refresh</button>
+      </div>
+    </header>
+
+    <div class="safety-banner"><span class="safety-icon">!</span><div><strong>LOCAL TEST ENVIRONMENT ONLY</strong><p>This application talks only to a local Hardhat node at <code>127.0.0.1:8545</code>. Test ETH has no real-world value. No public network is configured.</p></div><button id="runDemoBtn" class="button demo-button" type="button">▶ Run Full Demo</button></div>
+
+    <section class="page-view active" id="page-dashboard">
+      <div class="metric-grid">
+        <article class="metric-card lime-card"><span class="metric-label" id="metricLabelBalance">CONTRACT POOL BALANCE</span><strong class="metric-value" id="balanceValue">—</strong><span class="metric-foot" id="metricFootBalance">Shared test ETH held by the contract</span></article>
+        <article class="metric-card"><span class="metric-label" id="metricLabelMembers">REGISTERED MEMBERS</span><strong class="metric-value" id="memberValue">—</strong><span class="metric-foot" id="metricFootMembers">On-chain member records</span></article>
+        <article class="metric-card"><span class="metric-label" id="metricLabelRequests">FUND REQUESTS</span><strong class="metric-value" id="requestValue">—</strong><span class="metric-foot" id="metricFootRequests">Requests recorded by contract</span></article>
+        <article class="metric-card pink-card"><span class="metric-label" id="metricLabelRole">YOUR CURRENT ROLE</span><strong class="metric-value role-value" id="roleValue">—</strong><span class="metric-foot" id="accountRoleFoot">Choose a local test account</span></article>
+      </div>
+      <div class="dashboard-grid">
+        <section class="panel"><div class="panel-heading"><div><div class="eyebrow">LATEST ACTIVITY</div><h2>Recent requests</h2></div><button class="button small secondary" data-go="requests">View all →</button></div><div id="recentRequests" class="empty-state">Connect and load a local contract to see requests.</div></section>
+        <section class="panel"><div class="panel-heading"><div><div class="eyebrow">QUICK ACCESS</div><h2>Workspace shortcuts</h2></div></div><div class="quick-actions"><button data-go="requests" class="quick-card"><span class="quick-icon lime">⇄</span><span><strong>Fund requests</strong><small>Create, approve and review</small></span><span>↗</span></button><button data-go="members" class="quick-card"><span class="quick-icon blue">♙</span><span><strong>Members</strong><small>Roles and account status</small></span><span>↗</span></button><button data-go="transactions" class="quick-card"><span class="quick-icon pink">≋</span><span><strong>Transaction log</strong><small>Events from the local chain</small></span><span>↗</span></button></div><div class="note-card"><strong>About role permissions</strong><p>Each role gets a focused dashboard. The pool itself is shared by the contract; this contract does not currently assign separate personal budgets or role-based allowances.</p></div></section>
+      </div>
+      <section class="panel"><div class="panel-heading"><div><div class="eyebrow">LOCAL EVM RECORDS</div><h2>Latest transactions</h2></div><button class="button small secondary" data-go="transactions">Open log →</button></div><div id="recentActivity" class="empty-state">No event history loaded.</div></section>
+    </section>
+
+    <section class="page-view" id="page-requests">
+      <div class="section-intro"><div><div class="eyebrow">REQUEST LIFECYCLE</div><h2>Fund requests</h2><p>Request creation, review, approvals and fund release are recorded by the smart contract.</p></div><span class="tag local-tag">LOCAL TEST ETH ONLY</span></div>
+      <div class="content-grid">
+        <section class="panel"><div class="panel-heading"><div><div class="eyebrow">NEW ON-CHAIN RECORD</div><h2>Create a fund request</h2></div><span class="tag pending">Member role</span></div>
+          <form id="requestForm" class="form-grid">
+            <div class="field full"><label for="recipient">Recipient test wallet</label><select id="recipient" required><option value="">Connect local node first</option></select></div>
+            <div class="field"><label for="amount">Amount (test ETH)</label><input id="amount" type="number" min="0.000000000000000001" step="any" placeholder="0.25" required></div>
+            <div class="field"><label for="category">Category</label><select id="category" required><option value="Supplies">Supplies</option><option value="Education">Education</option><option value="Emergency assistance">Emergency assistance</option><option value="Transport">Transport</option><option value="Operations">Operations</option><option value="Equipment">Equipment</option><option value="Other">Other</option></select></div>
+            <div class="field full"><label for="purpose">Purpose</label><input id="purpose" maxlength="100" placeholder="e.g. Purchase of learning materials" required></div>
+            <div class="field full form-footer"><p class="help-text">Requests above the contract threshold require both Treasurer and Adviser approval.</p><button class="button primary" id="submitRequestBtn" type="submit">＋ Submit request</button></div>
+          </form>
+        </section>
+        <section class="panel"><div class="panel-heading"><div><div class="eyebrow">CURRENT SELECTED ACCOUNT</div><h2>Role guide</h2></div></div><div class="role-guide"><div><span class="role-symbol member">M</span><span><strong>Member</strong><small>Create and cancel your own pending requests.</small></span></div><div><span class="role-symbol treasurer">T</span><span><strong>Treasurer</strong><small>Approve, reject and release approved requests.</small></span></div><div><span class="role-symbol adviser">A</span><span><strong>Adviser</strong><small>Approve large requests after Treasurer approval, or reject eligible requests.</small></span></div><div><span class="role-symbol admin">O</span><span><strong>Contract owner</strong><small>Register members and update member status.</small></span></div></div></section>
+      </div>
+      <section class="panel"><div class="panel-heading list-heading"><div><div class="eyebrow">LIVE CONTRACT DATA</div><h2>All fund requests</h2></div><div class="filters"><input id="requestSearch" placeholder="Search request…" aria-label="Search requests"><select id="requestFilter" aria-label="Filter requests"><option value="all">All statuses</option><option value="0">Pending</option><option value="1">Partially approved</option><option value="2">Approved</option><option value="3">Rejected</option><option value="4">Released</option><option value="5">Cancelled</option></select></div></div><div id="requestsTable" class="empty-state">No contract data loaded.</div></section>
+    </section>
+
+    <section class="page-view" id="page-members">
+      <div class="section-intro"><div><div class="eyebrow">ACCESS & ACCOUNTABILITY</div><h2>Member directory</h2><p>Member details and roles read from the current local contract.</p></div><span class="tag local-tag">ON-CHAIN MEMBERS</span></div>
+      <div class="content-grid members-grid">
+        <section class="panel"><div class="panel-heading"><div><div class="eyebrow">ADMIN-ONLY ACTION</div><h2>Register a member</h2></div><span class="tag approved">Owner account</span></div>
+          <form id="memberForm" class="form-grid"><div class="field full"><label for="memberName">Full name</label><input id="memberName" maxlength="70" placeholder="Member display name" required></div><div class="field full"><label for="memberWallet">Local test wallet</label><select id="memberWallet" required><option value="">Connect local node first</option></select></div><div class="field full"><label for="memberRole">Role</label><select id="memberRole" required><option value="1">Member</option><option value="2">Treasurer</option><option value="3">Adviser</option></select></div><div class="field full form-footer"><p class="help-text">Admin is reserved for the contract owner and cannot be assigned through this form.</p><button class="button primary" id="addMemberBtn" type="submit">＋ Add member</button></div></form>
+        </section>
+        <section class="panel directory-summary"><div class="eyebrow">DIRECTORY SUMMARY</div><h2 id="directoryCount">— accounts</h2><p>Every registration is a real local-chain transaction, not a browser-only mock record.</p><div class="summary-row"><span>Active</span><strong id="activeMemberCount">—</strong></div><div class="summary-row"><span>Inactive</span><strong id="inactiveMemberCount">—</strong></div><div class="summary-row"><span>Selected account</span><strong class="mono" id="selectedMemberAddress">—</strong></div></section>
+      </div>
+      <section class="panel"><div class="panel-heading list-heading"><div><div class="eyebrow">REGISTERED WALLETS</div><h2>All members</h2></div><div class="filters"><input id="memberSearch" placeholder="Search name or wallet…" aria-label="Search members"><select id="memberFilter" aria-label="Filter members"><option value="all">All members</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div><div id="membersTable" class="empty-state">No contract data loaded.</div></section>
+    </section>
+
+    <section class="page-view" id="page-transactions">
+      <div class="section-intro"><div><div class="eyebrow">AUDIT TRAIL</div><h2>Transaction log</h2><p>Event history read from the current local Hardhat chain. Restarting the node clears its state.</p></div><button id="exportBtn" class="button secondary" type="button">↓ Export CSV</button></div>
+      <section class="panel"><div class="panel-heading list-heading"><div><div class="eyebrow">DECODED CONTRACT EVENTS</div><h2>Activity</h2></div><input id="activitySearch" class="search-input" placeholder="Search activity…" aria-label="Search activity"></div><div id="activityTable" class="empty-state">No event history loaded.</div></section>
+    </section>
+
+    <section class="page-view" id="page-setup">
+      <div class="section-intro"><div><div class="eyebrow">DEVELOPER WORKSPACE</div><h2>Local setup</h2><p>Connection details and safe operating instructions for the local test chain.</p></div><span class="tag local-tag">NO PUBLIC RPC</span></div>
+      <section class="panel setup-panel"><div class="panel-heading"><div><div class="eyebrow">LOCAL NETWORK CONFIGURATION</div><h2>Connection status</h2></div><span class="tag pending" id="setupStateTag">Checking…</span></div><div class="setting-list"><div><span>Local node URL</span><strong>http://127.0.0.1:8545</strong></div><div><span>Expected chain ID</span><strong>31337</strong></div><div><span>Active contract address</span><strong class="mono" id="contractAddress">Not deployed</strong></div><div><span>Current deployer / contract owner</span><strong class="mono" id="adminAddress">—</strong></div><div><span>Selected test account</span><strong class="mono" id="setupAccount">—</strong></div></div><div class="form-footer setup-actions"><button class="button secondary" id="reloadDeploymentBtn" type="button">Load saved deployment</button><button class="button danger" id="fundPoolBtn" type="button">Fund pool with 10 test ETH</button></div><p class="help-text">Pool funding sends local test ETH to the contract. It never uses a real wallet extension or public blockchain.</p></section>
+      <section class="panel steps-panel"><div class="eyebrow">HOW TO RUN THIS APP</div><h2>Local launch checklist</h2><ol><li>In terminal 1, run <code>npm run node</code> and keep it open.</li><li>In terminal 2, run <code>npm run app</code>.</li><li>Open <code>http://127.0.0.1:5500</code> in your browser.</li><li>Click <strong>Run Full Demo</strong> to deploy a fresh contract and execute real local transactions.</li><li>Choose different unlocked accounts in the account selector to test permissions and roles.</li></ol><div class="note-card"><strong>Important</strong><p>Restarting the Hardhat node resets the local blockchain. After restarting it, run the demo again or redeploy. Demo transactions use only local unlocked test accounts.</p></div></section>
+      <section class="panel"><div class="panel-heading"><div><div class="eyebrow">AUTOMATED VERIFICATION</div><h2>Full demo report</h2></div><span class="tag local-tag">CONTRACT CALLS</span></div><div id="demoResults" class="empty-state">Run Full Demo to deploy, seed sample records and verify the request lifecycle.</div></section>
+    </section>
+
+    <footer class="footer"><span>FUNDFLOW · NIEVA — NETWORK-BASED FUND TRANSFER SYSTEM</span><span>LOCAL HARDHAT · TEST ETH ONLY · NO PUBLIC CHAIN</span></footer>
+  </main>
+</div>
+<div id="aiBackdrop" class="ai-backdrop" hidden></div>
+<div id="aiAssistantWrap" class="ai-assistant-wrap">
+  <button type="button" id="aiChatButton" class="ai-fab" aria-expanded="false" aria-controls="aiPanel">
+    <span class="ai-fab-icon" aria-hidden="true">✦</span><span class="ai-fab-copy">FundFlow AI</span><span id="aiStatusPill" class="ai-status-pill">Checking</span>
+  </button>
+  <section id="aiPanel" class="ai-panel" hidden aria-label="FundFlow AI assistant">
+    <div class="ai-panel-head">
+      <div class="ai-title-lockup"><span class="ai-avatar" aria-hidden="true">✦</span><div><strong>FundFlow assistant</strong><small id="aiPanelSubtitle">Local contract guide · Groq</small></div></div>
+      <div class="ai-panel-controls">
+        <button type="button" id="aiExpandButton" class="ai-window-control" aria-label="Expand assistant to full screen" title="Full screen">⤢</button>
+        <button type="button" id="aiCloseButton" class="ai-window-control ai-close" aria-label="Close assistant" title="Close">×</button>
+      </div>
+    </div>
+    <div id="aiStatusMessage" class="ai-status-message" role="status" aria-live="polite">Checking AI service…</div>
+    <div id="aiMessages" class="ai-messages" role="log" aria-live="polite" aria-relevant="additions">
+      <article class="chat-bubble assistant-message"><strong>Hi! I'm your FundFlow guide.</strong><p>Ask me about roles, approvals, request statuses, the local test chain, or an error message. I can explain actions, but I can't approve or release funds for you.</p></article>
+    </div>
+        <div class="ai-suggested-prompts"><button type="button" data-ai-prompt="Explain what my current role can do.">My role</button><button type="button" data-ai-prompt="Explain the fund request approval flow.">Approval flow</button><button type="button" data-ai-prompt="What does each request status mean?">Statuses</button><button type="button" data-ai-prompt="Help me troubleshoot the local Hardhat connection.">Troubleshoot</button></div>
+    <form id="aiChatForm" class="ai-composer"><textarea id="aiMessageInput" rows="1" maxlength="2000" placeholder="Ask about FundFlow…" aria-label="Message the FundFlow assistant" required></textarea><button type="submit" id="aiSendButton" aria-label="Send message">Send <span aria-hidden="true">↗</span></button></form>
+    <div class="ai-disclaimer">AI answers may be wrong. Never share API keys or private information.</div>
+  </section>
+</div>
+<div id="actionModal" class="app-modal-backdrop" hidden>
+  <section class="app-modal" role="dialog" aria-modal="true" aria-labelledby="actionModalTitle" aria-describedby="actionModalDescription">
+    <header class="app-modal-head"><div class="modal-mark" id="actionModalMark">!</div><div class="modal-title-group"><h2 id="actionModalTitle">Confirm action</h2><p id="actionModalDescription">Review the details first.</p></div><button type="button" class="modal-x" id="actionModalX" aria-label="Close dialog">×</button></header>
+    <div id="actionModalBody" class="app-modal-body"></div>
+    <div id="actionModalError" class="modal-inline-error" hidden></div>
+    <footer class="app-modal-actions"><button type="button" class="button secondary" id="actionModalCancel">Go back</button><button type="button" class="button primary" id="actionModalConfirm">Confirm</button></footer>
+  </section>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

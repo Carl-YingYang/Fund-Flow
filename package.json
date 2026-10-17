@@ -1,0 +1,29 @@
+{
+  "name": "fundflow-local-starter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-only FundFlow smart contract demo and test environment",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
+    "app": "hardhat compile && tsx scripts/local-server.ts"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/chai": "^4.3.20",
+    "@types/express": "^4.17.21",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.13.10",
+    "chai": "^4.5.0",
+    "dotenv": "^16.5.0",
+    "ethers": "^6.13.5",
+    "express": "^4.21.2",
+    "hardhat": "^2.26.3",
+    "mocha": "^10.8.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3"
+  }
+}

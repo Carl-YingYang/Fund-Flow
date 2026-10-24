@@ -1,0 +1,396 @@
+/*
+ * FundFlow MetaMask integration — LOCAL HARDHAT ONLY.
+ * This add-on preserves the existing local-account mode and routes app writes
+ * through the connected MetaMask signer when MetaMask mode is active.
+ * Never use Hardhat demo private keys on a public network.
+ */
+(() => {
+  'use strict';
+
+  const HOST_CHAIN_ID = 31337n;
+  const HOST_CHAIN_HEX = '0x7a69';
+  const HOST_RPC = 'http://127.0.0.1:8545';
+  const $ = (id) => document.getElementById(id);
+  const originalFetch = window.fetch.bind(window);
+
+  const wallet = {
+    connected: false,
+    account: '',
+    provider: null,
+    chainId: null,
+    contractAddress: '',
+    abi: null
+  };
+  window.FundFlowWallet = wallet;
+  let connectButton;
+  let busy = false;
+
+  const short = (address) => address ? `${address.slice(0, 7)}…${address.slice(-5)}` : '';
+  const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+
+  function localToast(message, kind = 'info') {
+    const toast = $('toast');
+    if (!toast) { window.alert(message); return; }
+    toast.textContent = message;
+    toast.className = `toast show${kind === 'error' ? ' error' : kind === 'success' ? ' success' : ''}`;
+    window.clearTimeout(localToast.timer);
+    localToast.timer = window.setTimeout(() => toast.classList.remove('show'), 4800);
+  }
+
+  function installStyles() {
+    if ($('metamask-local-style')) return;
+    const style = document.createElement('style');
+    style.id = 'metamask-local-style';
+    style.textContent = `
+      #metamaskConnectBtn { white-space:nowrap; display:inline-flex; align-items:center; gap:8px; }
+      #metamaskConnectBtn .mm-dot { width:8px;height:8px;border-radius:50%;background:var(--orange,#ffc27a);border:1px solid currentColor;display:inline-block; }
+      #metamaskConnectBtn.is-connected .mm-dot { background:var(--green,#b8f3c2); }
+      #metamaskConnectBtn:disabled { opacity:.65;cursor:wait; }
+      .metamask-help { margin-top:9px; padding:10px 12px; border:1px solid var(--line,#171717); background:var(--card,#fffdf7); font-size:12px; line-height:1.45; }
+      @media(max-width:900px) { #metamaskConnectBtn { flex:1;justify-content:center; } }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function installButton() {
+    const actions = document.querySelector('.top-actions');
+    if (!actions || $('metamaskConnectBtn')) return;
+    connectButton = document.createElement('button');
+    connectButton.type = 'button';
+    connectButton.id = 'metamaskConnectBtn';
+    connectButton.className = 'button secondary';
+    connectButton.innerHTML = '<span class="mm-dot"></span><span>Connect MetaMask</span>';
+    connectButton.title = 'Connect a MetaMask account to the Hardhat Local test network';
+    const localButton = $('connectBtn');
+    if (localButton && localButton.parentElement === actions) actions.insertBefore(connectButton, localButton);
+    else actions.prepend(connectButton);
+    connectButton.addEventListener('click', async () => {
+      if (busy) return;
+      if (wallet.connected) disconnectWallet();
+      else await connectWallet();
+    });
+  }
+
+  function updateButton() {
+    if (!connectButton) return;
+    connectButton.classList.toggle('is-connected', wallet.connected);
+    connectButton.innerHTML = wallet.connected
+      ? `<span class="mm-dot"></span><span>MetaMask · ${esc(short(wallet.account))}</span>`
+      : '<span class="mm-dot"></span><span>Connect MetaMask</span>';
+    connectButton.title = wallet.connected
+      ? `${wallet.account} · click to return to local test-account mode`
+      : 'Connect a MetaMask account to the Hardhat Local test network';
+  }
+
+  function jsonResponse(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+      status,
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+    });
+  }
+
+  function insertAccount(accounts) {
+    const rest = Array.isArray(accounts) ? accounts : [];
+    if (!wallet.connected || !wallet.account) return rest;
+    return [wallet.account, ...rest.filter((a) => String(a).toLowerCase() !== wallet.account.toLowerCase())];
+  }
+
+  async function getActiveDeployment() {
+    const response = await originalFetch('/api/status', { cache: 'no-store' });
+    const status = await response.json().catch(() => ({}));
+    if (!response.ok || !status.connected) {
+      throw new Error(status.error || 'The local Hardhat node is not reachable. Start npm run node first.');
+    }
+    if (Number(status.chainId) !== 31337) throw new Error('FundFlow only supports Hardhat Local (chain ID 31337) in this setup.');
+    if (!status.contractLoaded || !status.contractAddress) {
+      throw new Error('No FundFlow contract is deployed yet. Click Run Full Demo first, then connect MetaMask.');
+    }
+    return status;
+  }
+
+  async function ensureAbi() {
+    if (wallet.abi) return wallet.abi;
+    const response = await originalFetch('/fundflow-abi.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Could not load frontend/fundflow-abi.json. Deploy or run the demo again.');
+    const abi = await response.json();
+    if (!Array.isArray(abi) || !abi.length) throw new Error('The saved contract ABI is empty. Run npm run compile, then Run Full Demo.');
+    wallet.abi = abi;
+    return abi;
+  }
+
+  async function ensureLocalNetwork() {
+    if (!window.ethereum) throw new Error('MetaMask was not found in this browser. Install or enable the MetaMask extension first.');
+    let chainId = await window.ethereum.request({ method: 'eth_chainId' });
+    if (String(chainId).toLowerCase() !== HOST_CHAIN_HEX) {
+      try {
+        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: HOST_CHAIN_HEX }] });
+      } catch (error) {
+        if (error?.code !== 4902) throw new Error('Switch MetaMask to Hardhat Local (chain ID 31337), then try again.');
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: HOST_CHAIN_HEX,
+            chainName: 'Hardhat Local',
+            rpcUrls: [HOST_RPC],
+            nativeCurrency: { name: 'Test Ether', symbol: 'ETH', decimals: 18 }
+          }]
+        });
+        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: HOST_CHAIN_HEX }] });
+      }
+      chainId = await window.ethereum.request({ method: 'eth_chainId' });
+    }
+    if (String(chainId).toLowerCase() !== HOST_CHAIN_HEX) throw new Error('MetaMask is not on Hardhat Local. Expected chain ID 31337.');
+    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const network = await provider.getNetwork();
+    if (network.chainId !== HOST_CHAIN_ID) throw new Error(`Wrong network: expected 31337, received ${network.chainId}.`);
+    // Check the local bridge too, so MetaMask is not shown as ready if Hardhat is stopped.
+    await getActiveDeployment();
+    return provider;
+  }
+
+  async function connectWallet() {
+    if (!window.ethereum) {
+      localToast('MetaMask extension not found. Install it, then reload this page.', 'error');
+      return;
+    }
+    if (!window.ethers?.BrowserProvider) {
+      localToast('ethers.js did not load. Check the ethers script tag in frontend/index.html.', 'error');
+      return;
+    }
+    busy = true;
+    if (connectButton) { connectButton.disabled = true; connectButton.textContent = 'Connecting…'; }
+    try {
+      // Ask for account access only after the user explicitly clicks this button.
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      if (!Array.isArray(accounts) || !accounts[0]) throw new Error('No MetaMask account was selected.');
+      const provider = await ensureLocalNetwork();
+      wallet.provider = provider;
+      wallet.account = String(accounts[0]);
+      wallet.chainId = HOST_CHAIN_ID;
+      wallet.connected = true;
+      wallet.abi = null;
+      wallet.contractAddress = '';
+      await ensureAbi();
+      const deployment = await getActiveDeployment();
+      wallet.contractAddress = deployment.contractAddress;
+      const code = await provider.getCode(wallet.contractAddress);
+      if (!code || code === '0x') throw new Error('No contract bytecode exists at the saved address on Hardhat Local. Run Full Demo again.');
+      updateButton();
+      selectWalletAccount();
+      if (window.ethereum.on && !wallet.eventsRegistered) {
+        window.ethereum.on('accountsChanged', handleAccountsChanged);
+        window.ethereum.on('chainChanged', handleChainChanged);
+        wallet.eventsRegistered = true;
+      }
+      localToast(`MetaMask connected · ${short(wallet.account)} · Hardhat Local`, 'success');
+    } catch (error) {
+      wallet.connected = false;
+      wallet.account = '';
+      wallet.provider = null;
+      updateButton();
+      localToast(explainWalletError(error), 'error');
+    } finally {
+      busy = false;
+      if (connectButton) connectButton.disabled = false;
+    }
+  }
+
+  function selectWalletAccount() {
+    const select = $('accountSelect');
+    if (!select || !wallet.connected) return;
+    let option = Array.from(select.options).find((item) => item.value.toLowerCase() === wallet.account.toLowerCase());
+    if (!option) {
+      option = document.createElement('option');
+      option.value = wallet.account;
+      select.add(option, 0);
+    }
+    option.textContent = `MetaMask · ${short(wallet.account)}`;
+    select.value = wallet.account;
+    // The application's existing change handler updates its internal selectedAccount and refreshes reads.
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function disconnectWallet() {
+    const previousAccount = String(wallet.account || '').toLowerCase();
+    wallet.connected = false;
+    wallet.account = '';
+    wallet.provider = null;
+    wallet.chainId = null;
+    wallet.contractAddress = '';
+    wallet.abi = null;
+    updateButton();
+    const select = $('accountSelect');
+    if (select) {
+      const localOption = Array.from(select.options).find((item) => item.value && item.value.toLowerCase() !== previousAccount);
+      if (localOption) select.value = localOption.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      $('refreshBtn')?.click();
+    }
+    localToast('Returned to local test-account mode. MetaMask site permissions were not revoked.', 'info');
+  }
+
+  async function handleAccountsChanged(accounts) {
+    if (!Array.isArray(accounts) || !accounts[0]) {
+      disconnectWallet();
+      return;
+    }
+    wallet.account = String(accounts[0]);
+    wallet.provider = new window.ethers.BrowserProvider(window.ethereum);
+    wallet.abi = null;
+    updateButton();
+    selectWalletAccount();
+    localToast(`MetaMask account switched to ${short(wallet.account)}.`, 'info');
+  }
+
+  async function handleChainChanged(chainHex) {
+    if (String(chainHex).toLowerCase() !== HOST_CHAIN_HEX) {
+      wallet.connected = false;
+      wallet.provider = null;
+      updateButton();
+      localToast('Wrong network. Select Hardhat Local (chain ID 31337), then reconnect MetaMask.', 'error');
+      return;
+    }
+    wallet.provider = new window.ethers.BrowserProvider(window.ethereum);
+    localToast('Hardhat Local network detected. Refreshing FundFlow…', 'info');
+    $('refreshBtn')?.click();
+  }
+
+  function explainWalletError(error) {
+    if (error?.code === 4001 || error?.code === 'ACTION_REJECTED') return 'MetaMask request was cancelled. Approve the connection or transaction to continue.';
+    const msg = String(error?.shortMessage || error?.reason || error?.message || error || 'Unknown wallet error');
+    if (msg.includes('insufficient funds')) return 'This account has no test ETH for gas. Use one of the local Hardhat test accounts on Hardhat Local only.';
+    return msg;
+  }
+
+  async function walletContract() {
+    if (!wallet.connected || !wallet.provider || !wallet.account) throw new Error('Connect MetaMask to Hardhat Local first.');
+    const network = await wallet.provider.getNetwork();
+    if (network.chainId !== HOST_CHAIN_ID) throw new Error('Wrong network. Switch MetaMask to Hardhat Local (31337).');
+    const deployment = await getActiveDeployment();
+    if (wallet.contractAddress !== deployment.contractAddress) {
+      wallet.contractAddress = deployment.contractAddress;
+      wallet.abi = null;
+    }
+    const code = await wallet.provider.getCode(wallet.contractAddress);
+    if (!code || code === '0x') throw new Error('The contract is not deployed at the saved address on this network. Run Full Demo again.');
+    const abi = await ensureAbi();
+    const signer = await wallet.provider.getSigner();
+    const signerAddress = await signer.getAddress();
+    if (signerAddress.toLowerCase() !== wallet.account.toLowerCase()) {
+      wallet.account = signerAddress;
+      selectWalletAccount();
+      throw new Error('MetaMask account changed. The page is refreshing the selected account; retry the action.');
+    }
+    return { contract: new window.ethers.Contract(wallet.contractAddress, abi, signer), signer, signerAddress };
+  }
+
+  async function sendWalletTransaction(action, body) {
+    const requestedAccount = String(body?.account || '').toLowerCase();
+    if (requestedAccount && requestedAccount !== wallet.account.toLowerCase()) {
+      throw new Error('The selected account differs from MetaMask. Switch accounts in the MetaMask extension and retry.');
+    }
+    const { contract, signer } = await walletContract();
+    let tx;
+    const b = body || {};
+    switch (action) {
+      case 'add-member':
+        if (![1, 2, 3].includes(Number(b.role))) throw new Error('Choose Member, Treasurer, or Adviser. Admin is reserved for the contract owner.');
+        tx = await contract.addMember(String(b.name || '').trim(), String(b.wallet || ''), Number(b.role));
+        break;
+      case 'create-request':
+        tx = await contract.createFundRequest(String(b.recipient || ''), window.ethers.parseEther(String(b.amountEth || '0')), String(b.purpose || '').trim(), String(b.category || '').trim());
+        break;
+      case 'approve-treasurer': tx = await contract.approveAsTreasurer(Number(b.id)); break;
+      case 'approve-adviser': tx = await contract.approveAsAdviser(Number(b.id)); break;
+      case 'reject': tx = await contract.rejectRequest(Number(b.id), String(b.reason || '').trim()); break;
+      case 'cancel': tx = await contract.cancelRequest(Number(b.id)); break;
+      case 'release': tx = await contract.releaseFunds(Number(b.id)); break;
+      case 'toggle-member': tx = await contract.setMemberStatus(String(b.wallet || ''), Boolean(b.active)); break;
+      case 'fund-pool': tx = await signer.sendTransaction({ to: wallet.contractAddress, value: window.ethers.parseEther(String(b.amountEth || '0')) }); break;
+      default: throw new Error(`MetaMask mode does not support transaction action: ${action}`);
+    }
+    const receipt = await tx.wait();
+    if (!receipt || Number(receipt.status) !== 1) throw new Error('MetaMask transaction was mined but did not succeed.');
+    return { ok: true, label: action, hash: tx.hash, blockNumber: Number(receipt.blockNumber), status: 'Confirmed' };
+  }
+
+  function patchFetch() {
+    if (window.__fundflowMetaMaskFetchPatched) return;
+    window.__fundflowMetaMaskFetchPatched = true;
+    window.fetch = async (input, init = {}) => {
+      let target;
+      try {
+        const raw = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
+        target = new URL(raw, window.location.href);
+      } catch { return originalFetch(input, init); }
+      const method = String(init.method || (typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET')).toUpperCase();
+      if (!wallet.connected || target.origin !== window.location.origin) return originalFetch(input, init);
+
+      if (method === 'GET' && target.pathname === '/api/status') {
+        const response = await originalFetch(input, init);
+        if (!response.ok) return response;
+        const data = await response.clone().json().catch(() => null);
+        if (!data || !Array.isArray(data.accounts)) return response;
+        data.accounts = insertAccount(data.accounts);
+        return jsonResponse(data, response.status);
+      }
+
+      if (method === 'GET' && target.pathname === '/api/state') {
+        target.searchParams.set('account', wallet.account);
+        const response = await originalFetch(target.toString(), init);
+        if (!response.ok) return response;
+        const data = await response.clone().json().catch(() => null);
+        if (!data || !Array.isArray(data.accounts)) return response;
+        data.accounts = insertAccount(data.accounts);
+        return jsonResponse(data, response.status);
+      }
+
+      if (method === 'POST' && target.pathname.startsWith('/api/tx/')) {
+        let body;
+        try { body = typeof init.body === 'string' ? JSON.parse(init.body) : {}; }
+        catch { return jsonResponse({ ok: false, error: 'Could not read the transaction payload.' }, 400); }
+        try {
+          const action = decodeURIComponent(target.pathname.slice('/api/tx/'.length));
+          const result = await sendWalletTransaction(action, body);
+          return jsonResponse(result, 200);
+        } catch (error) {
+          return jsonResponse({ ok: false, error: explainWalletError(error) }, 400);
+        }
+      }
+
+      return originalFetch(input, init);
+    };
+  }
+
+  function guardAccountSelector() {
+    const select = $('accountSelect');
+    if (!select || select.dataset.metamaskGuard === 'true') return;
+    select.dataset.metamaskGuard = 'true';
+    select.addEventListener('change', (event) => {
+      if (!wallet.connected) return;
+      if (String(select.value).toLowerCase() !== wallet.account.toLowerCase()) {
+        select.value = wallet.account;
+        event.stopImmediatePropagation();
+        localToast('Switch the active account in MetaMask. The app selector is locked while MetaMask is connected.', 'info');
+      }
+    }, true);
+  }
+
+  function init() {
+    installStyles();
+    installButton();
+    patchFetch();
+    guardAccountSelector();
+    if (window.ethereum?.on && !wallet.eventsRegistered) {
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+      window.ethereum.on('chainChanged', handleChainChanged);
+      wallet.eventsRegistered = true;
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
+})();

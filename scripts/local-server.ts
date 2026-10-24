@@ -125,7 +125,7 @@ app.get("/api/state", async (req, res) => {
     const c = requireContract();
     const accounts: string[] = await provider.send("eth_accounts", []);
     const account = String(req.query.account || accounts[0]);
-    if (!accounts.some((a) => a.toLowerCase() === account.toLowerCase())) throw new Error("Choose one of the local Hardhat test accounts.");
+    if (!isAddress(account)) throw new Error("Choose a valid EVM wallet address.");
     const [balance, accountBalance, countMembers, countRequests, memberAddresses, admin, logs, blockNumber] = await Promise.all([
       c.getContractBalance(), provider.getBalance(account), c.memberCount(), c.requestCount(), c.getMemberAddresses(), c.admin(),
       provider.getLogs({ address: activeAddress, fromBlock: 0, toBlock: "latest" }), provider.getBlockNumber()
